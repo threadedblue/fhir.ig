@@ -1,16 +1,14 @@
 package org.psoppc.fhir;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
-import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EAnnotation;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EClassifier;
@@ -20,12 +18,9 @@ import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.EcoreFactory;
 import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.hl7.fhir.ElementDefinition;
-import org.hl7.fhir.ElementDefinitionBinding;
 import org.hl7.fhir.ElementDefinitionDiscriminator;
 import org.hl7.fhir.ElementDefinitionSlicing;
 import org.hl7.fhir.StructureDefinition;
-import org.hl7.fhir.StructureDefinitionDifferential;
-import org.hl7.fhir.StructureDefinitionSnapshot;
 import org.hl7.fhir.UnsignedInt;
 import org.hl7.fhir.emf.FHIRSerDeser;
 import org.hl7.fhir.emf.Finals;
@@ -65,26 +60,79 @@ public class AHRQProfiler implements Runnable {
         }
     }
 
-
+	@Override
 	public void run() {
-		StructureDefinition profile = loadProfile();
-		EPackage spec = loadSpec();
-		EPackage out = copySpec(spec);
-		log.info("out.size=0 {}", out.getEClassifiers().size());
-		clearClassifiers(out);
-		log.info("out.size=1 {}", out.getEClassifiers().size());
-
-		populateEcoreOut(profile, spec, out);
-		OutputStream writer = FHIRSerDeser.save(out, Finals.SDS_FORMAT.ECORE);
 		try {
-			FileWriter fileOut = new FileWriter(new File(output));
-			fileOut.write(writer.toString());
-			fileOut.close();
-		} catch (IOException e) {
-			e.printStackTrace();
+			EPackage fullSpec = loadSpec();
+			StructureDefinition sd = loadProfile();
+
+			Set<String> snapshotTypeNames = collectSnapshotTypeNames(sd);
+			Set<EClassifier> retainSet = collectClassifiersToRetain(fullSpec, snapshotTypeNames);
+
+			EPackage prunedSpec = copyAndPruneSpec(fullSpec, retainSet);
+			OutputStream writer = FHIRSerDeser.save((EObject)prunedSpec, Finals.SDS_FORMAT.ECORE);
+
+			log.info("Pruned Ecore written to: " + output);
+		} catch (Exception e) {
+			log.error("Error during pruning process", e);
 		}
 	}
 
+	private Set<String> collectSnapshotTypeNames(StructureDefinition sd) {
+		Set<String> names = new HashSet<>();
+		for (ElementDefinition ed : sd.getSnapshot().getElement()) {
+			String path = ed.getPath(); // e.g. "AdverseEvent.identifier"
+			if (path.contains(".")) {
+				String typeName = path.substring(0, path.indexOf('.'));
+				names.add(typeName);
+			} else {
+				names.add(path);
+			}
+		}
+		return names;
+	}
+
+	private Set<EClassifier> collectClassifiersToRetain(EPackage spec, Set<String> initialNames) {
+		Set<EClassifier> retainSet = new HashSet<>();
+		for (String name : initialNames) {
+			EClassifier cls = spec.getEClassifier(name);
+			if (cls != null) {
+				collectDependencies(cls, retainSet);
+			} else {
+				log.warn("Classifier not found in spec: " + name);
+			}
+		}
+		return retainSet;
+	}
+
+	private void collectDependencies(EClassifier cls, Set<EClassifier> visited) {
+		if (!visited.add(cls)) return;
+	
+		if (cls instanceof EClass ec) {
+			for (EStructuralFeature feature : ec.getEStructuralFeatures()) {
+				EClassifier refType = feature.getEType();
+				if (refType != null) {
+					collectDependencies(refType, visited);
+				}
+			}
+		}
+	}
+
+	private EPackage copyAndPruneSpec(EPackage fullSpec, Set<EClassifier> retainSet) {
+		EPackage copy = copySpec(fullSpec);
+		List<EClassifier> toRemove = new ArrayList<>();
+
+		for (EClassifier cls : copy.getEClassifiers()) {
+			if (retainSet.stream().noneMatch(retained -> retained.getName().equals(cls.getName()))) {
+				toRemove.add(cls);
+			}
+		}
+
+		copy.getEClassifiers().removeAll(toRemove);
+		return copy;
+	}
+
+	
     public boolean isHelp() {
         return help;
     }
@@ -93,168 +141,6 @@ public class AHRQProfiler implements Runnable {
         System.out.println("Usage:");
         CLI.printUsage(System.out);
     }
-
-    public void populateEcoreOut(StructureDefinition profile, EPackage spec, EPackage out) {
-
-		StructureDefinitionSnapshot snap = profile.getSnapshot();
-		for (ElementDefinition snapElem : snap.getElement()) {
-            String snapElemPath = snapElem.getPath().getValue(); // e.g., "AdverseEvent.actuality"
-
-            String[] parts = snapElemPath.split("\\.");
-			if (parts.length == 1) continue; // skip root element
-			String parentPath = String.join(".", Arrays.copyOf(parts, parts.length - 1));
-			String currentName = parts[parts.length - 1];
-
-			String snapElemClassName = parts[0];
-			String snapElemFeatureName = parts[1];
-
-            // Find the source EClass in the spec package
-            EClassifier specElemClassifier = spec.getEClassifier(snapElemClassName);
-            if (!(isInSpec(snapElemClassName, spec))) {
-                log.error("⚠️ Could not find EClass " + snapElemClassName + " in spec.");
-                continue;
-            }
-
-            // Add to the output package
-			EClassifier copyClassifier = null;
-			if (!out.getEClassifiers().contains(specElemClassifier)) {
-					log.info("specElemClassifier.eContents().size()0 {}", specElemClassifier.eContents().size());
-					copyClassifier = copyClassifier(specElemClassifier);
-					log.info("copyClassifier.eContents().size()1 {}", copyClassifier.eContents().size());
-					log.info("copyClassifier.size=0 {}", out.getEClassifiers().size());
-					out.getEClassifiers().add(copyClassifier);
-					log.info("copyClassifier.size=1 {}", out.getEClassifiers().size());
-				
-
-				//    Find the feature in the sSeems eevpec EClass
-				log.debug("snapElemPath={}", snapElemPath);
-					EClass copyClass = (EClass) copyClassifier;
-
-					EStructuralFeature outElemFeature = copyClass.getEStructuralFeature(snapElemFeatureName);
-					if (outElemFeature == null) {
-						log.error("⚠️ Could not find feature {} in {}", snapElemFeatureName , copyClassifier.getName());
-						log.info("copyClassifier.size={}", copyClassifier.eContents().size());
-						for(EObject eO : copyClassifier.eContents()) {
-							log.debug("eO.eClass().getName()={}", copyClass.getName());
-						}
-						continue;
-					}
-
-				// Optional: apply snapshot constraints
-				applySnapshotElementToFeature(snapElem, outElemFeature);
-				applySlice(snapElem, outElemFeature);
-			}
-		}
-	}
-
-	public void applySnapshotElementToFeature(
-		ElementDefinition snapshotElem,
-		EStructuralFeature outFeature) {
-		
-		// --- Apply cardinality, slicing and anything else ---
-		applyBounds(snapshotElem, outFeature);
-		applySlice(snapshotElem, outFeature);
-
-		// --- Add FHIR annotations ---
-		EAnnotation fhirAnnotation = outFeature.getEAnnotation(HL7_FHIR_URL);
-		if (fhirAnnotation == null) {
-			fhirAnnotation = EcoreFactory.eINSTANCE.createEAnnotation();
-			fhirAnnotation.setSource(HL7_FHIR_URL);
-			outFeature.getEAnnotations().add(fhirAnnotation);
-		}
-
-		// mustSupport
-		org.hl7.fhir.Boolean mustSupport = snapshotElem.getMustSupport();
-		if (mustSupport != null) {
-			if (Boolean.TRUE.equals(mustSupport.isValue())) {
-				fhirAnnotation.getDetails().put("mustSupport", "true");
-			}
-		}
-
-		// binding
-		ElementDefinitionBinding binding = snapshotElem.getBinding();
-		if (binding != null) {
-			String valueSet = binding.getValueSet().getValue();
-			if (valueSet != null) {
-				fhirAnnotation.getDetails().put("binding.valueSet", valueSet);
-			}
-
-			Object strength = binding.getStrength(); // might be enum or string
-			if (strength != null) {
-				fhirAnnotation.getDetails().put("binding.strength", strength.toString());
-			}
-		}
-
-		// --- Add documentation ---
-		String doc = snapshotElem.getShort().getValue();
-		if (doc == null) {
-			doc = snapshotElem.getDefinition().getValue();
-		}
-
-		if (doc != null) {
-			EAnnotation genModelAnnotation = outFeature.getEAnnotation(ECORE_GENMODEL_URL);
-			if (genModelAnnotation == null) {
-				genModelAnnotation = EcoreFactory.eINSTANCE.createEAnnotation();
-				genModelAnnotation.setSource(ECORE_GENMODEL_URL);
-				outFeature.getEAnnotations().add(genModelAnnotation);
-			}
-
-			genModelAnnotation.getDetails().put("documentation", doc);
-		}
-	}
-
-	// This method is not ready for prime time.
-	public void applyDifferential(StructureDefinition sd, EPackage ePackage) {
-		EList<ElementDefinition> differentials = sd.getDifferential().getElement();
-		if (differentials == null || differentials.isEmpty()) return;
-
-		Map<String, EClass> pathToClass = new HashMap<>();
-		for (EClassifier classifier : ePackage.getEClassifiers()) {
-			if (classifier instanceof EClass cls) {
-				pathToClass.put(cls.getName(), cls);
-			}
-		}
-
-		for (ElementDefinition diff : differentials) {
-			String path = diff.getPath().getValue();
-			String[] parts = path.split("\\.");
-			if (parts.length < 2) continue;
-
-			String className = parts[0];
-			String featureName = parts[parts.length - 1].toLowerCase();
-
-			EClass eClass = pathToClass.get(className);
-			if (eClass == null) continue;
-
-			EStructuralFeature feature = eClass.getEStructuralFeatures().stream()
-				.filter(f -> f.getName().equals(featureName))
-				.findFirst().orElse(null);
-
-			if (feature == null) continue;
-
-			// Update cardinality
-			if (diff.getMin() != null && diff.getMin().getValue() != null) {
-				feature.setLowerBound(diff.getMin().getValue().intValue());
-			}
-			if (diff.getMax() != null && diff.getMax().getValue() != null) {
-				String maxVal = diff.getMax().getValue();
-				feature.setUpperBound("*".equals(maxVal) ? -1 : Integer.parseInt(maxVal));
-			}
-
-			// Add EAnnotation for other constraints, bindings, etc.
-			// if (diff.hasShort()) {
-			// 	EAnnotation annotation = feature.getEAnnotations().stream()
-			// 		.filter(a -> "fhir.short".equals(a.getSource()))
-			// 		.findFirst().orElseGet(() -> {
-			// 			EAnnotation a = EcoreFactory.eINSTANCE.createEAnnotation();
-			// 			a.setSource("fhir.short");
-			// 			feature.getEAnnotations().add(a);
-			// 			return a;
-			// 		});
-			// 	annotation.getDetails().put("value", diff.getShort());
-			// }
-    }
-}
 
 	Boolean isInSpec(String elemClassName, EPackage spec) {
 		EClassifier elemClassifier = spec.getEClassifier(elemClassName);
@@ -363,7 +249,8 @@ public class AHRQProfiler implements Runnable {
 	
 		// Then resolve cross-references
 		copier.copyReferences();
-	
+		log.debug(original.);
+		log.ebug((EClassifier) copier.get(original))
 		return (EClassifier) copier.get(original);
 	}
 
@@ -404,116 +291,6 @@ public class AHRQProfiler implements Runnable {
     //             }
     //             annotation.getDetails().put("mustSupport", "true");
     //         }
-
-	// 	// Search for any fixed[x] value using EMF reflection
-	// 	EClass elemClass = diffElem.eClass();
-	// 	for (EStructuralFeature f : elemClass.getEStructuralFeatures()) {
-	// 		if (f.getName().startsWith("fixed")) {
-	// 			Object fixedValue = diffElem.eGet(f);
-	// 			if (fixedValue != null) {
-	// 				String fixedStr = fixedValue.toString(); // or extract details depending on type
-
-	// 				// Add as EAnnotation to your output feature
-	// 				EAnnotation annotation = feature.getEAnnotation(HL7_FHIR_URL);
-	// 				if (annotation == null) {
-	// 					annotation = EcoreFactory.eINSTANCE.createEAnnotation();
-	// 					annotation.setSource("fhir");
-	// 					feature.getEAnnotations().add(annotation);
-	// 				}
-
-	// 				annotation.getDetails().put("fixed", fixedStr);
-	// 				break; // Assume only one fixed[x] is set
-	// 			}
-	// 		}        
-	// 	}
-	// }
-	// 	// Check if this ElementDefinition has a binding
-	// 	ElementDefinitionBinding binding = diffElem.getBinding();
-	// 	if (binding != null) {
-	// 		String valueSetUrl = binding.getValueSet().getValue(); // likely a URI or Canonical type
-	// 		BindingStrength strength = binding.getStrength(); // probably an enum
-
-	// 		if (valueSetUrl != null || strength != null) {
-	// 			EAnnotation annotation = feature.getEAnnotation(HL7_FHIR_URL);
-	// 			if (annotation == null) {
-	// 				annotation = EcoreFactory.eINSTANCE.createEAnnotation();
-	// 				annotation.setSource("fhir");
-	// 				feature.getEAnnotations().add(annotation);
-	// 			}
-
-	// 			if (valueSetUrl != null) {
-	// 				annotation.getDetails().put("binding.valueSet", valueSetUrl);
-	// 			}
-
-	// 			if (strength != null) {
-	// 				annotation.getDetails().put("binding.strength", strength.getName()); // or getLiteral()
-	// 			}
-	// 		}
-	// 	}
-	// }
-
-////////////////////////////	
-// 		// Check for a 'binding' feature in the differential ElementDefinition
-// 		EStructuralFeature bindingFeature = diffElem.eClass().getEStructuralFeature("binding");
-
-// 		if (bindingFeature != null) {
-// 			Object bindingObj = diffElem.eGet(bindingFeature);
-// 			if (bindingObj instanceof EObject) {
-// 				EObject binding = (EObject) bindingObj;
-
-// 				// Get valueSet and strength from the binding EObject
-// 				EStructuralFeature valueSetFeature = binding.eClass().getEStructuralFeature("valueSet");
-// 				EStructuralFeature strengthFeature = binding.eClass().getEStructuralFeature("strength");
-
-// 				String valueSetUrl = null;
-// 				String strengthCode = null;
-
-// 				if (valueSetFeature != null) {
-// 					Object value = binding.eGet(valueSetFeature);
-// 					if (value != null) {
-// 						valueSetUrl = value.toString();
-// 					}
-// 				}
-
-// 				if (strengthFeature != null) {
-// 					Object value = binding.eGet(strengthFeature);
-// 					if (value != null) {
-// 						strengthCode = value.toString();
-// 					}
-// 				}
-
-// 				// Add annotation to the feature if either value is found
-// 				if (valueSetUrl != null || strengthCode != null) {
-// 					EAnnotation annotation = feature.getEAnnotation(HL7_FHIR_URL);
-// 					if (annotation == null) {
-// 						annotation = EcoreFactory.eINSTANCE.createEAnnotation();
-// 						annotation.setSource("fhir");
-// 						feature.getEAnnotations().add(annotation);
-// 					}
-
-// 					if (valueSetUrl != null) {
-// 						annotation.getDetails().put("binding.valueSet", valueSetUrl);
-// 					}
-// 					if (strengthCode != null) {
-// 						annotation.getDetails().put("binding.strength", strengthCode);
-// 					}
-// 				}
-// 			}
-// }
-//	 }
-
-	
-// private void applySnapshotAndDifferential(
-//     StructureDefinitionSnapshot snap,
-//     StructureDefinitionDifferential diff,
-//     EPackage spec,
-//     EPackage out) {
-//     // your earlier logic to populate `out` from `snap` and `diff`
-// }
-
-// private void writeOut(EPackage out) {
-//     FHIRSerDeser.save(out, Finals.SDS_FORMAT.ECORE);
-// }
 	
 	public static void main(String[] args) {
         try {
@@ -529,48 +306,4 @@ public class AHRQProfiler implements Runnable {
             log.error("Soaping is wrong.", e);
         }
     }
-
-	// public static OutputStream profileResource(EObject eObject) {
-	// 	URI ecoreURI =  URI.createFileURI("data/fhir.ecore");
-	// 	resource = resourceSet.getResource(ecoreURI, true);
-	// 	ByteArrayOutputStream writer = null;
-	// 	try {
-	// 		writer = new ByteArrayOutputStream();
-	// 		resource.save(System.out, Collections.EMPTY_MAP);
-	// 		writer.close();
-	// 	} catch (JsonProcessingException e) {
-	// 		log.error("", e);
-	// 	} catch (IOException e) {
-	// 		log.error("", e);
-	// 	}
-	// 	return writer;
-
-	// }
-
-	// void loadParse() {
-		
-	// 	ResourceSet resourceSet = new ResourceSetImpl();
-	// 	Resource fhirResource = resourceSet.getResource(URI.createFileURI("fhir.ecore"), true);
-	// 	Resource profileResource = resourceSet.getResource(URI.createFileURI("custom_profile.ecore"), true);
-		
-	// 	EObject fhirRoot = fhirResource.getContents().get(0);
-	// 	EObject profileRoot = profileResource.getContents().get(0);
-	// }
-
-	// void iterateElements() {
-	// 	for (EClassifier classifier : fhirEPackage.getEClassifiers()) {
-	// 		if (classifier instanceof EClass) {
-	// 			EClass eClass = (EClass) classifier;
-	// 			if (profileDefinesRestrictions(eClass)) {
-	// 				applyProfileConstraints(eClass, profileEPackage);
-	// 			}
-	// 		}
-	// 	}		
-	// }
-
-	// void merge() {
-	// 	Resource newEcoreResource = resourceSet.createResource(URI.createFileURI("profiled_fhir.ecore"));
-	// 	newEcoreResource.getContents().add(fhirRoot);
-	// 	newEcoreResource.save(Collections.EMPTY_MAP);
-	// }
 }
