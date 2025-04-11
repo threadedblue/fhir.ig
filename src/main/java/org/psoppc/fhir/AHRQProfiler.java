@@ -1,6 +1,8 @@
 package org.psoppc.fhir;
 
-import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
@@ -70,8 +72,15 @@ public class AHRQProfiler implements Runnable {
 			Set<EClassifier> retainSet = collectClassifiersToRetain(fullSpec, snapshotTypeNames);
 
 			EPackage prunedSpec = copyAndPruneSpec(fullSpec, retainSet);
-			OutputStream writer = FHIRSerDeser.save((EObject)prunedSpec, Finals.SDS_FORMAT.ECORE);
 
+			OutputStream writer = FHIRSerDeser.save((EObject)prunedSpec, Finals.SDS_FORMAT.ECORE);
+			try {
+				FileWriter fileOut = new FileWriter(new File(output));
+				fileOut.write(writer.toString());
+				fileOut.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			log.info("Pruned Ecore written to: " + output);
 		} catch (Exception e) {
 			log.error("Error during pruning process", e);
@@ -81,7 +90,7 @@ public class AHRQProfiler implements Runnable {
 	private Set<String> collectSnapshotTypeNames(StructureDefinition sd) {
 		Set<String> names = new HashSet<>();
 		for (ElementDefinition ed : sd.getSnapshot().getElement()) {
-			String path = ed.getPath(); // e.g. "AdverseEvent.identifier"
+			String path = ed.getPath().getValue(); // e.g. "AdverseEvent.identifier"
 			if (path.contains(".")) {
 				String typeName = path.substring(0, path.indexOf('.'));
 				names.add(typeName);
@@ -119,18 +128,34 @@ public class AHRQProfiler implements Runnable {
 	}
 
 	private EPackage copyAndPruneSpec(EPackage fullSpec, Set<EClassifier> retainSet) {
-		EPackage copy = copySpec(fullSpec);
-		List<EClassifier> toRemove = new ArrayList<>();
-
-		for (EClassifier cls : copy.getEClassifiers()) {
-			if (retainSet.stream().noneMatch(retained -> retained.getName().equals(cls.getName()))) {
-				toRemove.add(cls);
-			}
+		EPackage newPkg = EcoreFactory.eINSTANCE.createEPackage();
+		newPkg.setName(fullSpec.getName());
+		newPkg.setNsURI(fullSpec.getNsURI());
+		newPkg.setNsPrefix(fullSpec.getNsPrefix());
+	
+		EcoreUtil.Copier copier = new EcoreUtil.Copier(true, true);
+		for (EClassifier retained : retainSet) {
+			EClassifier copied = (EClassifier) copier.copy(retained);
+			newPkg.getEClassifiers().add(copied);
 		}
-
-		copy.getEClassifiers().removeAll(toRemove);
-		return copy;
+		copier.copyReferences();
+	
+		return newPkg;
 	}
+
+	// private EPackage copyAndPruneSpec(EPackage fullSpec, Set<EClassifier> retainSet) {
+	// 	EPackage copy = copySpec(fullSpec);
+	// 	List<EClassifier> toRemove = new ArrayList<>();
+
+	// 	for (EClassifier cls : copy.getEClassifiers()) {
+	// 		if (retainSet.stream().noneMatch(retained -> retained.getName().equals(cls.getName()))) {
+	// 			toRemove.add(cls);
+	// 		}
+	// 	}
+
+	// 	copy.getEClassifiers().removeAll(toRemove);
+	// 	return copy;
+	// }
 
 	
     public boolean isHelp() {
@@ -249,8 +274,8 @@ public class AHRQProfiler implements Runnable {
 	
 		// Then resolve cross-references
 		copier.copyReferences();
-		log.debug(original.);
-		log.ebug((EClassifier) copier.get(original))
+		log.debug(original.toString());
+		log.debug(copier.get(original).toString());
 		return (EClassifier) copier.get(original);
 	}
 
