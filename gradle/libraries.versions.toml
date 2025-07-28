@@ -1,0 +1,52 @@
+[versions]
+args4j = "2.33"
+jackson = "2.15.2"
+emf = "2.40.0"
+ecore = "2.38.0"
+xcore = "1.7.0"
+xbase = "2.34.0"
+slf4j = "2.0.7"
+junit = "5.10.0"
+emfjson = "1.3.1"
+fhir = "4.3.0"
+acc = "2.1.3"
+assertj = "3.24.2"
+mockito = "5.11.0"
+springboot = "3.2.5"
+spring-context = "6.1.5"
+
+[libraries]
+args4j = { module = "args4j:args4j", version.ref = "args4j" } 
+fhirEmf = { module = "org.hl7:fhir.emf", version.ref = "fhir" }
+
+emfjson = { module = "org.emfjson:emfjson-jackson", version.ref = "emfjson" }
+
+emfCommon = { module = "org.eclipse.emf:org.eclipse.emf.common", version.ref = "emf" }
+emfEcore = { module = "org.eclipse.emf:org.eclipse.emf.ecore", version.ref = "ecore" }
+emfEcoreXMI = { module = "org.eclipse.emf:org.eclipse.emf.ecore.xmi", version.ref = "ecore" }
+ecoreXcore = { module = "org.eclipse.emf:org.eclipse.emf.ecore.xcore.lib", version.ref = "xcore" }
+xtextXbase = { module = "org.eclipse.xtext:org.eclipse.xtext.xbase.lib", version.ref = "xbase" }
+
+jacksonCore = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
+jacksonDatabind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+jacksonAnnotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+
+slf4jAPI = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+logbackClassic = { module = "ch.qos.logback:logback-classic", version = "1.4.11" }
+
+junitJupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junitJupiterAPI = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
+junitJupiterEngine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
+
+jsonSchemaValidator = { module = "com.networknt:json-schema-validator", version = "1.0.42" }
+
+accumulo = { module = "org.apache.accumulo:accumulo-core", version.ref = "acc" }
+graphulo = { module = "edu.mit.ll:graphulo", version = "3.1.2" }
+
+assertj = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+mockito = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+
+springWeb = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "springboot" }
+springActuator = { module = "org.springframework.boot:spring-boot-starter-actuator", version.ref = "springboot" }
+context = { module = "org.springframework:spring-context", version.ref = "spring-context" }
+springTest = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "springboot" }

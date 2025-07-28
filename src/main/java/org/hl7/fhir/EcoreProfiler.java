@@ -1,4 +1,4 @@
-package org.psoppc.fhir;
+package org.hl7.fhir;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -19,14 +19,6 @@ import org.eclipse.emf.ecore.EPackage;
 import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.EcoreFactory;
 import org.eclipse.emf.ecore.util.EcoreUtil;
-import org.hl7.fhir.ElementDefinition;
-import org.hl7.fhir.ElementDefinitionBinding;
-import org.hl7.fhir.ElementDefinitionDiscriminator;
-import org.hl7.fhir.ElementDefinitionSlicing;
-import org.hl7.fhir.StructureDefinition;
-import org.hl7.fhir.StructureDefinitionDifferential;
-import org.hl7.fhir.StructureDefinitionSnapshot;
-import org.hl7.fhir.UnsignedInt;
 import org.hl7.fhir.emf.FHIRSerDeser;
 import org.hl7.fhir.emf.Finals;
 import org.kohsuke.args4j.CmdLineException;
@@ -35,9 +27,9 @@ import org.kohsuke.args4j.Option;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class AHRQProfiler implements Runnable {
+public class EcoreProfiler implements Runnable {
 
-	private static final Logger log = LoggerFactory.getLogger(AHRQProfiler.class);
+	private static final Logger log = LoggerFactory.getLogger(EcoreProfiler.class);
 
 	public static final java.lang.String ECORE_GENMODEL_URL = "http://www.eclipse.org/emf/2002/GenModel";
 	public static final java.lang.String HL7_FHIR_URL = "http://hl7.org/fhir";
@@ -45,20 +37,20 @@ public class AHRQProfiler implements Runnable {
     private CmdLineParser CLI;
 
     @Option(name = "-p", aliases = "--profile", required = false, usage = "Path to the profile")
-    private String profile;
+    private java.lang.String profile;
 
     @Option(name = "-i", aliases = "--input", required = false, usage = "Path to fhir.ecore")
-    private String input;
+    private java.lang.String input;
 
     @Option(name = "-o", aliases = "--output", required = false, usage = "Path to out.ecore.")
-    private String output;
+    private java.lang.String output;
 
 	@Option(name = "-h", aliases = {"--help"}, help = true, usage = "Display help")
 	private boolean help;
 
-    public AHRQProfiler(String[] args) throws CmdLineException {
+    public EcoreProfiler(String[] args) throws CmdLineException {
         try {
-			CLI = new CmdLineParser(AHRQProfiler.this);
+			CLI = new CmdLineParser(EcoreProfiler.this);
             CLI.parseArgument(args);
         } catch (CmdLineException e) {
             log.error("", e);
@@ -98,15 +90,15 @@ public class AHRQProfiler implements Runnable {
 
 		StructureDefinitionSnapshot snap = profile.getSnapshot();
 		for (ElementDefinition snapElem : snap.getElement()) {
-            String snapElemPath = snapElem.getPath().getValue(); // e.g., "AdverseEvent.actuality"
+			java.lang.String snapElemPath = snapElem.getPath().getValue(); // e.g., "AdverseEvent.actuality"
 
-            String[] parts = snapElemPath.split("\\.");
+			java.lang.String[] parts = snapElemPath.split("\\.");
 			if (parts.length == 1) continue; // skip root element
-			String parentPath = String.join(".", Arrays.copyOf(parts, parts.length - 1));
-			String currentName = parts[parts.length - 1];
+			java.lang.String parentPath = java.lang.String.join(".", Arrays.copyOf(parts, parts.length - 1));
+			java.lang.String currentName = parts[parts.length - 1];
 
-			String snapElemClassName = parts[0];
-			String snapElemFeatureName = parts[1];
+			java.lang.String snapElemClassName = parts[0];
+			java.lang.String snapElemFeatureName = parts[1];
 
             // Find the source EClass in the spec package
             EClassifier specElemClassifier = spec.getEClassifier(snapElemClassName);
@@ -151,12 +143,12 @@ public class AHRQProfiler implements Runnable {
 
 		StructureDefinitionDifferential diff = profile.getDifferential();
 		for (ElementDefinition diffElem : diff.getElement()) {
-			String diffPath = diffElem.getPath().getValue();
-			String[] parts = diffPath.split("\\.");
+			java.lang.String diffPath = diffElem.getPath().getValue();
+			java.lang.String[] parts = diffPath.split("\\.");
 			if (parts.length < 2) continue;
 
-			String className = parts[0];
-			String featureName = parts[parts.length - 1].toLowerCase();
+			java.lang.String className = parts[0];
+			java.lang.String featureName = parts[parts.length - 1].toLowerCase();
 	
 			EClass eClass = pathToClass.get(className);
 			if (eClass == null) continue;
@@ -211,7 +203,7 @@ public class AHRQProfiler implements Runnable {
 		// mustSupport
 		org.hl7.fhir.Boolean mustSupport = snapshotElem.getMustSupport();
 		if (mustSupport != null) {
-			if (Boolean.TRUE.equals(mustSupport.isValue())) {
+			if (mustSupport.isValue()) {
 				fhirAnnotation.getDetails().put("mustSupport", "true");
 			}
 		}
@@ -219,7 +211,7 @@ public class AHRQProfiler implements Runnable {
 		// binding
 		ElementDefinitionBinding binding = snapshotElem.getBinding();
 		if (binding != null) {
-			String valueSet = binding.getValueSet().getValue();
+			java.lang.String valueSet = binding.getValueSet().getValue();
 			if (valueSet != null) {
 				fhirAnnotation.getDetails().put("binding.valueSet", valueSet);
 			}
@@ -378,13 +370,13 @@ public class AHRQProfiler implements Runnable {
 
 
 	StructureDefinition loadProfile() {
-		InputStream reader = AHRQProfiler.class.getClassLoader()
+		InputStream reader = EcoreProfiler.class.getClassLoader()
 			.getResourceAsStream(profile);
 		return (StructureDefinition) FHIRSerDeser.load(reader, Finals.SDS_FORMAT.XML);
 	}
 
 	EPackage loadSpec() {
-		InputStream reader = AHRQProfiler.class.getClassLoader()
+		InputStream reader = EcoreProfiler.class.getClassLoader()
 			.getResourceAsStream(input);
 			log.debug("reader=" + reader);
 		return (EPackage) FHIRSerDeser.load(reader, Finals.SDS_FORMAT.ECORE);
@@ -561,7 +553,7 @@ public class AHRQProfiler implements Runnable {
 	
 	public static void main(String[] args) {
         try {
-            AHRQProfiler app = new AHRQProfiler(args);
+            EcoreProfiler app = new EcoreProfiler(args);
             log.info("Start==>");
 			if (app.isHelp()) {
                 app.printUsage();

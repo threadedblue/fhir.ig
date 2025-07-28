@@ -1,4 +1,4 @@
-package org.psoppc.fhir;
+package org.hl7.fhir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -9,6 +9,7 @@ import org.eclipse.emf.ecore.EClassifier;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EPackage;
 import org.eclipse.emf.ecore.EStructuralFeature;
+import org.hl7.fhir.EcoreProfiler;
 import org.hl7.fhir.ElementDefinition;
 import org.hl7.fhir.StructureDefinition;
 import org.hl7.fhir.StructureDefinitionSnapshot;
@@ -16,9 +17,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.kohsuke.args4j.CmdLineException;
 
-public class AHRQProfilerTest {
+public class EcoreProfilerTest {
 
-	static AHRQProfiler sut;
+	static EcoreProfiler sut;
 	static EObject profile;
 	static EObject spec;
 
@@ -26,7 +27,7 @@ public class AHRQProfilerTest {
 	static void beforAll() {
 		String[] ss = {"-p", "StructureDefinition-qicore-adverseevent.xml", "-i", "fhir.ecore", "-o", "out.ecore"};
 		try {
-			sut = new AHRQProfiler(ss);
+			sut = new EcoreProfiler(ss);
 		} catch (CmdLineException e) {
 			e.printStackTrace();
 		}
